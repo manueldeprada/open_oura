@@ -14,12 +14,16 @@ git `rev`. A change here only reaches the apps once open_health bumps that `rev`
   decoders. Pure, no I/O; unit-tested against real captured packets.
 - `crates/oura-link` — `Transport` trait + `btleplug` BLE, handshake, history-event
   drain, live HR/ACM, features, RData (`OuraClient`).
-- `crates/oura-analysis` — HRV, SpO2, baselines, sleep summary, scores (ported `ecore`).
+- `crates/oura-analysis`: metric functions (HRV, SpO2, baselines, sleep summary, sleep,
+  readiness and activity scores with input assembly, breathing rate, IBI correction)
+  and the sleep staging pipeline. Pure; the `oura` binary does not use it.
+  API guide: `crates/oura-analysis/README.md`.
 - `crates/oura-store` — SQLite persistence (raw events, readings, sync cursor).
 - `crates/oura-cli` — the `oura` protocol/debug binary.
 - `tools/` — Python research bench (`oura_protocol.py`, `oura_realtime_listener.py`).
 
-Architecture and module boundaries: `crates/README.md` and `docs/architecture.md`.
+Architecture and module boundaries: `crates/README.md` and `docs/architecture.md`. Topic
+index: `docs/README.md`.
 
 ## Building / testing
 

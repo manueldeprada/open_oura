@@ -27,7 +27,7 @@ offline. The one genuine cloud-only step is **workout auto-classification**
 (`POST /api/activity-tagging/v2`). See
 [`docs/data-recovery-map.md`](docs/data-recovery-map.md),
 [`docs/algorithms/README.md`](docs/algorithms/README.md), and
-[`docs/model-runners.md`](https://github.com/Th0rgal/open_health/blob/main/docs/model-runners.md) (in open_health) for what runs.
+[`docs/model-runners.md`](docs/model-runners.md) for what runs.
 
 > **Those PyTorch models are Oura's proprietary IP and are NOT included in this
 > repo** (gitignored under `notes/models/`). The runners reference them by path; you
@@ -70,6 +70,8 @@ State-changing and destructive commands are hidden behind `--include-state` and
 
 ## Documentation
 
+Start with [`docs/README.md`](docs/README.md), the topic index.
+
 - [`docs/horizon-ring3-protocol-cheatsheet.md`](docs/horizon-ring3-protocol-cheatsheet.md):
   the protocol command reference (requests, responses, auth, features), Ring 3.
 - [`docs/android-app-reversing.md`](docs/android-app-reversing.md): app internals,
@@ -96,7 +98,12 @@ State-changing and destructive commands are hidden behind `--include-state` and
 - [`docs/architecture.md`](docs/architecture.md): the fetch/interpret/apply crate
   layering and where to add things.
 - [`docs/algorithms/README.md`](docs/algorithms/README.md): the on-device ecore
-  metric algorithms (scores, sleep, baselines) and their porting status.
+  metric algorithms (scores, sleep, baselines) and their status;
+  [`crates/oura-analysis/README.md`](crates/oura-analysis/README.md) is the API guide.
+- [`docs/model-runners.md`](docs/model-runners.md): optional runners for user-supplied
+  model files.
+- [`docs/ring-feature-modes.md`](docs/ring-feature-modes.md): workout, real-step and PPG
+  sampler packets and event layouts.
 - [`docs/factory-reset.md`](docs/factory-reset.md): the two verified ways to reset a
   ring — the `1a00` command and a button-free hardware procedure on the Gen3/Ring 4
   dock — plus what a reset erases and how to re-pair without handing the ring back

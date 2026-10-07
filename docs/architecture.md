@@ -17,29 +17,36 @@ crate owns one job and depends only "downward".
                 └───────────────┬───────────────────────────────┘
                                 │ typed samples
                 ┌───────────────▼───────────────────────────────┐
-   INTERPRET    │ oura-analysis  ecore-ported algorithms:         │  (high level)
+   INTERPRET    │ oura-analysis  metric algorithms:               │  (high level)
    (compute)    │                HRV, SpO2, baselines, sleep      │
                 │                summary, sleep/readiness/activity │
-                │                scores; SleepNet model wrapper    │
-                └───────────────┬───────────────────────────────┘
-                                │ daily metrics
-                ┌───────────────▼───────────────────────────────┐
+                │                scores, breathing rate,          │
+                │                sleep staging                     │
+                └────────────────────────────────────────────────┘
+                (pure functions on slices; the caller reads stored
+                 events and supplies the inputs)
+
+                ┌───────────────────────────────────────────────┐
    APPLY        │ oura-store   SQLite: raw events (lossless),     │
-                │              readings, daily metrics, cursor    │
+                │              decoded_json, readings, device,    │
+                │              sync cursor                        │
                 └────────────────────────────────────────────────┘
 
    oura-cli  orchestrates protocol/debug flows: fetch → store(raw) → decode
+             (it does not depend on oura-analysis)
 ```
 
 ## Crates and what goes where
 
 | Crate | Layer | Owns | Depends on | I/O? |
-| --- | --- | --- | --- |
+| --- | --- | --- | --- | --- |
 | `oura-protocol` | interpret (decode) | packet framing, request builders, app-auth AES, `device` parsers, `events` decoders + typed sample/event structs | - | none (pure) |
 | `oura-link` | fetch | `Transport` trait, `btleplug` `BleTransport`, `OuraClient` (firmware/battery/auth/sync/live/features/rdata) | oura-protocol | BLE, async |
-| `oura-analysis` | interpret (compute) | ecore-derived metric algorithms; daily-metric structs; `sleepnet` model wrapper (feature-gated) | oura-protocol | none (pure compute) |
+| `oura-analysis` | interpret (compute) | metric algorithms in `ported::` (`sleepstaging` is a directory of submodules) and their generated `*_vectors.rs` test tables | oura-protocol (only `ported/real_steps.rs` imports it) | none (pure compute) |
 | `oura-store` | apply | SQLite schema + read/write, sync cursor, `redecode` | oura-protocol | SQLite |
-| `oura-cli` | wiring | protocol/debug command dispatch | all of the above | BLE, SQLite |
+| `oura-cli` | wiring | protocol/debug command dispatch | oura-protocol, oura-link, oura-store | BLE, SQLite |
+
+The store schema has five tables (`store_meta`, `device`, `sync_state`, `events`, `readings`); there are no daily-metric tables. `oura-cli` has no score command; scores are computed by callers of `oura-analysis`.
 
 **Where to add things**
 - A new **wire decoder** (new event body) → `oura-protocol::events::decode_body`
@@ -64,8 +71,11 @@ infallible (return `Option`). `oura-cli` collapses everything to `anyhow`.
 1. `oura-link` connects, authenticates, and drains history events (raw frames).
 2. `oura-protocol` decodes each event body into typed samples (or leaves it raw).
 3. `oura-store` persists raw events + a per-device cursor (idempotent, incremental).
-4. `oura-analysis` turns stored samples into daily metrics (HRV, scores, …).
-5. `oura-store` persists the metrics; `oura-cli`/UIs read them back.
+4. A caller reads the stored events back (`decoded_events`, `open_read_only`) and passes
+   them to `oura-analysis` functions to compute daily metrics (HRV, scores, …); see
+   [`crates/oura-analysis/README.md`](../crates/oura-analysis/README.md).
+5. Nothing is written back: daily metrics are recomputed on demand and are not persisted
+   in `oura.db`.
 
 ## Maintaining algorithm docs
 

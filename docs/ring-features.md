@@ -126,6 +126,15 @@ Key files: `…/data/device/ring/b0.smali` (`r()` enable sequence), `f2.java`
 `core/model/backend/FeatureDefinitions.java` (server flags),
 `ourakit/domain/FeatureMode.java` (mode enum).
 
+### Ring 3
+
+The Ring 5 table above does not apply to a Ring 3. After REAL_STEPS is set to AUTOMATIC
+and a manual exercise session is requested (0x03 REQUESTED, then OFF), a Ring 3 writes
+a `feature_session` (tag `0x6c`, feature 0x0b, status 1), pairs of `0x7e`/`0x7f` at one
+pair per 30 s (about 4.8 kB per hour), and for the exercise session a `feature_session`
+pair with status 0 and status 2 plus `0x73` and `0x74` events. Event layouts and byte
+rates are in [ring-feature-modes.md](ring-feature-modes.md).
+
 ## Commands
 
 - `oura feature-status` — read the real on-ring mode of the data features.
@@ -138,3 +147,13 @@ Key files: `…/data/device/ring/b0.smali` (`r()` enable sequence), `f2.java`
 
 After enabling a feature: wear the ring, let it run, then `oura sync` to pull the
 new events.
+
+## Client API
+
+`protocol::CAPTURE_FEATURES` lists the six features a client may switch (daytime HR, real steps, exercise HR,
+SpO2, resting HR, PPG sampler) with display names. `OuraClient::capture_features()` reads their modes without
+writing. `set_capture_modes(&[(id, 0 | 1)])` refuses other modes and other features, writes real steps first
+(exercise HR depends on it), and returns the modes read back. `exercise_start(activity_id, resting_hr, max_hr)`
+reads the exercise HR mode, writes the workout parameters, and sets REQUESTED. `exercise_stop(restore_mode)` puts
+the earlier mode back in up to three attempts; if all fail, the mode stays REQUESTED until a later write (see
+[ring-feature-modes.md](ring-feature-modes.md)). Tests use the mock transport.

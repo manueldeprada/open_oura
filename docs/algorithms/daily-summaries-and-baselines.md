@@ -76,6 +76,11 @@ Readiness Score … history 6 day(s)  ⚠ baselines still maturing (<14d) — pr
 
 ## What's still gated
 
+> **Update.** The activity paragraph below describes the regression pipeline. The ported modules
+> now score activity (`tools/score_activity.py`, `ported::activity_score`) with the target scaled
+> by the day's readiness percent; see `docs/algorithms/metrics.md`.
+> `build_daily.py` still uses the calibrated fits.
+
 - **Activity Score** — `Meet Daily Targets` tracks an adaptive personal goal in
   `DbDailyActivity.target_calories` (app/account, not on the ring); `Training
   Volume/Frequency` are multi-day training load. So Activity stays weights-solved but

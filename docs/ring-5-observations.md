@@ -80,12 +80,13 @@ reset, DFU reset, soft reset, and flight mode were **not** run.
 
 Confirmed accepted on Ring 5:
 
-- App-style time sync shape: `12 09 <token> <unix/256:u24 LE> 00 00 00 00 f6`.
-  The zero-counter probe wrote successfully; the Rust library now exposes
-  `req_sync_time_counter` and `OuraClient::sync_time_app`.
-- Stream registration: `16 01 02`.
-- Event category subscription shapes:
-  `18 03 <category> <flags:u16 LE>`; the app-observed categories are
+- Time sync shape: `12 09 <u64 LE unix s> <tz half hours>`, the same packet
+  as Ring 3. The first payload byte is the low byte of the clock and the last is the
+  timezone byte. See "Time sync" in `sync-orchestration.md`.
+- Stream registration: `16 01 02` (BLE mode 2).
+- Product-info read shapes (reply tag `0x19`; earlier read as event category
+  subscriptions): `18 03 <offset u16 LE> <length u8>`. The offset and length pairs,
+  written `(category, flags)` in the code, are
   `(0x14,0x1000)`, `(0x18,0x1000)`, `(0x28,0x0900)`, `(0x34,0x0400)`,
   `(0x04,0x1000)`, `(0x08,0x1000)`.
 - App setup parameter sweep:

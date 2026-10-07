@@ -14,11 +14,18 @@ The code is split by concern - **fetch → interpret → apply** (see
 - **`oura-link`** - *fetch*: the `Transport` trait + `btleplug` BLE, the
   connection/auth handshake, the history-event sync drain, live HR/ACM, features,
   RData. The high-level `OuraClient`.
-- **`oura-analysis`** - *interpret (high level)*: on-device metric algorithms
-  ported from Oura's `ecore` engine (HRV, SpO2, baselines, sleep summary, the
-  three scores). See [`docs/algorithms/`](../docs/algorithms/README.md).
+- **`oura-analysis`** - *interpret (high level)*: metric algorithms (HRV, SpO2,
+  baselines, sleep summary, the sleep, readiness and activity scores with their input
+  assembly, breathing rate, IBI correction) and the sleep-staging pipeline.
+  Pure functions; the caller supplies the inputs. See
+  [`oura-analysis/README.md`](oura-analysis/README.md) and
+  [`docs/algorithms/`](../docs/algorithms/README.md).
 - **`oura-store`** - *apply*: SQLite persistence (raw events, readings, sync cursor).
-- **`oura-cli`** - the protocol/debug `oura` binary wiring it together.
+  Five tables (`store_meta`, `device`, `sync_state`, `events`, `readings`); no daily
+  metric tables.
+- **`oura-cli`** - the protocol/debug `oura` binary wiring `oura-protocol`, `oura-link`
+  and `oura-store` together. It has no score command and does not depend on
+  `oura-analysis`.
 
 ## Build
 
@@ -79,6 +86,8 @@ oura --key-file key.hex rdata state
 # Offline: event counts; re-decode stored raw bodies with current decoders
 oura --db oura.db events
 oura --db oura.db redecode
+
+# Also: sleep-analyze [--force], subscribe, feature-mode, feature-status
 ```
 
 > After pairing a ring yourself, its measurement features (daytime HR, SpO2…) are
@@ -94,9 +103,10 @@ Common flags are global: `--name` (scan name filter, default `Oura`), `--address
 It reproduces everything obtainable from the ring itself: device info, battery,
 live heart rate (IBI → BPM), latest HR/SpO2, and the full history-event stream
 (raw PPG/IBI/temperature/motion/SpO2 samples, plus the ring's on-device sleep
-stages, activity MET levels and HRV). It does **not** compute the Oura cloud's
-0–100 Readiness / Sleep / Activity / Stress scores or workout auto-classification -
-those are server-side and out of scope by design (see `docs/data-recovery-map.md`).
+stages, activity MET levels and HRV). The ring does not emit the 0–100 Readiness /
+Sleep / Activity scores; `oura-analysis` computes them from the ring's events (see
+`docs/algorithms/README.md`; the `oura` binary itself has no score command). Workout
+auto-classification is not reproduced here (see `docs/data-recovery-map.md`).
 
 ## Event decoding status
 
@@ -119,15 +129,15 @@ land. Each decoder has a unit test.
 | --- | --- | --- |
 | `temp_event` / `temp_period` / `sleep_temp` | `i16` LE / 100 | temperature °C (verified worn ~33 °C; 7 probes Ring 3, 3 Ring 5) |
 | `hrv_event` | pairs `(u8 hr, u8 rmssd)`, 5 min apart | avg HR + RMSSD (validated overnight: HR 40, RMSSD ~101 ms) |
-| **`green_ibi_quality_event` (`0x80`)** | `ibi=(b1&7)|(b0<<3)`, `q=(b1>>3)&3` | inter-beat intervals → HR (daytime; ~50 bpm resting) |
+| **`green_ibi_quality_event` (`0x80`)** | `ibi=(b1&7)|(b0<<3)`, `q=(b1>>3)&3` | inter-beat intervals → HR (daytime; ~50 bpm resting). Named a Ring 5 tag in the code; a Ring 3 Horizon also writes it |
 | **`ibi_and_amplitude_event` (`0x60`)** | 14-byte bit-packed | 6× IBI ms + PPG amplitude → HR. Median 41 bpm overnight on Ring 4 (370k beats) but with a fat fast tail (7 % of beats > 100 bpm, p95 139) that a Malik 20 % filter doesn't clean; a Gen 3 Horizon shows the same (13 %). The native parser emits only `timestamp/ibi/amp` per beat (no quality flag), so either the bit layout is partly wrong or the ring ships unfiltered beats — treat `hr_bpm` as raw, and prefer `green_ibi_quality` (`0x80`) when present |
 | **`spo2_r_pi_event` (`0x8b`)** | header + 3-byte `(R: u16 BE/16384, PI: u8/255×0.05)` | SpO2 R-ratio + perfusion index (validated overnight: R ~0.72, PI ~4%) |
 | `sleep_acm_period` (`0x72`) | 6 fixed-point floats | accelerometer MAD stats during sleep |
 | `sleep_period_information_2` (`0x6a`) | 10-byte `SleepPeriodInfo` (HR ×0.5, breath ÷8, …) | per-window sleep sample from `parse_api_sleep_period_info` |
 | `activity_information` | state + MET bytes (`<128: ×0.1`, else `12.8+(b-128)×0.2`) | state + MET levels |
 | `motion_event` | orientation `b0>>5`, axes signed `i8×8`, intensity nibbles | orientation + avg x/y/z + intensity (validated worn) |
-| `spo2_event` | header + `u8` per sample | SpO2 % series (decoder ready; not emitted by Ring 5 yet) |
-| `sleep_phase_*` | header byte (page index) + 2-bit codes, 4/byte | hypnogram deep/light/rem/awake. Gen 3 Horizon (fw 3.4.3) emits `sleep_phase_data` (`0x5a`) as numbered 14-byte pages: 52 × 30 s epochs each, ~21 pages a night. Not seen from Ring 4/5 yet |
+| `spo2_event` (`0x6f`) | header + `u8` per sample | SpO2 % series, one sample per second, 13 per event. A Ring 3 Horizon writes it (values above 100 occur, so clamp at 100) |
+| `sleep_phase_*` | header byte (page index) + 2-bit codes, 4/byte | hypnogram deep/light/rem/awake. A Gen 3 Horizon emits `sleep_phase_data` (`0x5a`) as numbered 14-byte pages: 52 × 30 s epochs each, ~21 pages a night |
 | `ambient` / `ehr_acm_intensity` | `u16` LE samples | raw values |
 | `time_sync` / `state_change` / `wear_event` / `alert` / debug | u32 / byte+text | as labelled |
 | `rtc_beacon` (`0x85`) | `u32 unix_s`, reserved bytes, trailer | precise 1-second wall-clock anchor |
@@ -148,11 +158,16 @@ land. Each decoder has a unit test.
 runtime, so `0x80`/`0x8b` were matched by structure and confirmed against real
 captured bytes (coherent HR, stable physiological R-ratio).
 
-**Still to port** (catalogued from the `.so`, lower priority): fully stateful
+**Still to port** (lower priority): fully stateful
 cross-record CVA PPG accumulation, the bit-packed session-stateful variants
 (`green_ibi_and_amp`, `spo2_ibi_and_amplitude`), the
-opaque `sleep_summary_1..4` fields, `motion_period`, `real_steps`, and the ~40
-`debug_data` statistics subtypes. Adding any of these never needs a re-sync - run
+opaque `sleep_summary_2..4` fields (`sleep_summary_1` matches `bedtime_period`; see
+`docs/algorithms/unvalidated-events.md`), `real_steps` (unvalidated; no sample yet), the
+raw-only tags `0x6e`, `0x77`, `0x6d` (13-byte `meas_quality_event`) and `0x4a`,
+and the ~40 `debug_data` statistics subtypes. `decode_debug_data` has a known defect:
+binary `0x61` records whose first byte is printable and that are zero-padded are stored
+as ASCII because the printable test runs before the subtype dispatch (`redecode` fixes
+them once the order is changed). Adding any of these never needs a re-sync - run
 `oura redecode`.
 
 ## Live raw-data channels (not history events)
@@ -204,11 +219,11 @@ emitted only the **raw** streams (IBI, HRV, SpO2 R/PI, sleep temp, sleep ACM), n
 the computed architecture. Triggering it explicitly with `oura sleep-analyze
 --force` (`CheckSleepAnalysis`) **does** make the ring emit `bedtime_period` - the
 detected sleep window (validated: ~7.28 h, decoded as two `u32` ring timestamps).
-But the full hypnogram (`sleep_phase_*`) and `sleep_summary_1..4`, and the
-summarized `spo2_event` (`0x6f`), still did **not** appear via this path - that
-detailed staging is likely finished in the official app's fuller flow or
-cloud-side. So sleep *stages/summaries* would, for now, have to be computed locally
-from the raw inputs we have (HR/HRV/temp/motion) - the way the cloud does.
+On a Ring 5, the full hypnogram (`sleep_phase_*`), `sleep_summary_1..4` and the
+summarized `spo2_event` (`0x6f`) do **not** appear via this path. A Gen 3 Horizon
+writes all of them: `sleep_phase_data` (`0x5a`), `sleep_summary_1..4` and
+`spo2_event`. Where they are absent, sleep *stages/summaries* have to be computed
+locally from the raw inputs (HR/HRV/temp/motion).
 
 **Assumptions** baked in: event-body timestamps are the envelope's ring time
 (deciseconds), not the native's resolved wall-clock; batched events' per-sample
@@ -218,10 +233,10 @@ are raw (~1000/g at rest); no g-unit conversion is applied.
 **Deferred** (catalogued, not implemented):
 - `green_ibi_and_amp` (`0x71`), `spo2_ibi_and_amplitude` (`0x6e`) - bit-packed +
   session-stateful (need carried state for corrected timestamps).
-- `sleep_summary_1..4` - fields are opaque/packed in the decompile; best decoded
-  against an overnight capture cross-checked with the trends CSV.
-- `motion_period` (2-bit-packed samples), `real_steps`, `on_demand_meas`, `aohr`,
-  and the ~40 `debug_data` statistics subtypes. (`motion_event` is now decoded.)
+- `sleep_summary_2..4` - fields are opaque/packed; a Horizon writes them but there
+  is no independent value to check them against (`sleep_summary_1` is cross-checked).
+- `real_steps`, `on_demand_meas`, `aohr`, and the ~40 `debug_data` statistics
+  subtypes. (`motion_event` and `motion_period` are decoded.)
 - **RData collection start + page decode**: starting writes a persistent flash
   session, and the page payload format lives in `libecore`/native code we haven't
   decoded - so we expose only read/teardown, not capture, to avoid leaving the ring

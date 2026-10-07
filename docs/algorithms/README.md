@@ -11,7 +11,9 @@ portable.
 This directory documents each metric we port into `oura-analysis`. Source
 addresses refer to functions in the decompiled `libappecore.so` (see
 `native-decoder.md` for the Ghidra method). Per-metric detail files are added as
-each is ported; this index is the status table.
+each is ported; this index is the status table. Method notes for the metrics listed
+below are in [metrics.md](metrics.md); the API is in
+[`crates/oura-analysis/README.md`](../../crates/oura-analysis/README.md).
 
 > **Models are not included in this repo.** Where the table says a metric runs via
 > a decrypted PyTorch model (`tools/run_*.py`), those `.pt` files are Oura's
@@ -27,16 +29,21 @@ each is ported; this index is the status table.
 | SpO2 (simple) | `spo2_simple_calculate @ 0x22ad50` (`a+b·R+c·R²`, clamp 0–120) | `oura-analysis::spo2` | ✅ ported + tested; needs per-device {a,b,c} |
 | Personal baseline | `baseline_update_lt_mean_and_dev @ 0x1dad04` (asymmetric EMA, anneals by age; int16 ×8) | `oura-analysis::baseline` | ✅ ported + tested (EMA; per-metric clamp tables unresolved) |
 | Nightly temperature + baseline | `nightly_temperature_calculate @ 0x203520`, `baseline_calculate_temperature_baseline @ 0x1db4d0` (7-sample median → 30-min window) | `oura-analysis::temperature` | ✅ ported + tested |
-| Breathing rate | `breathing_rate_calculate_averages @ 0x27342c` (IBI→RR @4 Hz→12-tap IIR) | - | ◐ IIR coefficients recovered; 4 Hz resample kernel unresolved - deferred |
+| Breathing rate | - | `oura-analysis::breathing_rate` | ✅ implemented: IBI resampled to 4 Hz, IIR filter, peak intervals; night averages of rate, variability and heart rate. See [metrics.md](metrics.md#breathing-rate) |
 | Sleep durations / efficiency / latency | `calculate_sleep_score_numerical @ 0x1f4444` (decodes 30 s nibble stages) | `oura-analysis::sleep` | ✅ decode+summary ported (aggregation reconstructed) |
-| Sleep score + contributors | `ecore_sleep_score_calculate @ 0x1f5c20`; limits `…_init_limits_v2 @ 0x1f5b20` (from age byte) | - | ◐ limits + sleep_timing recovered; contributor mapper `FUN_001f5e64` not in export - needs re-decompile |
+| Sleep score + contributors | - | `oura-analysis::sleep_score`, `sleep_inputs` | ✅ implemented: weighted combiner of nine curve inputs, age-dependent limits, timing contributor; inputs derived from stage and motion series. See [metrics.md](metrics.md#sleep-score) |
 | Sleep debt | `sleep_debt_calculate @ 0x215658` | `oura-analysis::sleep_debt` | ✅ ported + tested |
-| Readiness score + contributors | `readiness_calculate @ 0x20897c`, `recovery_legacy_run @ 0x20b258` | - | ◐ legacy contributor formulas recovered; weight tables `0x17bff8`/`0x17bfdc` + modern `FUN_002094e0` need .rodata dump + re-decompile |
-| Rest/recovery mode | `rest_recovery_* @ 0x20bf38…` | - | ⏳ to port |
-| Activity score + contributors | `get_activity_score_raw @ 0x1d5788` (per-contributor pw-interp, Y=[0,25,95,100]); combiner `@ 0x1d781c` | - | ◐ contributor curves + X-tables recovered; final-combiner divisor ambiguous - needs careful re-read |
-| Activity targets / cals / MET | `actinfo_target_to_cal @ 0x1cd2c8`, `actinfo_update_5_min_classification @ 0x1cd640` | `oura-analysis::metabolic` | ◐ VO2max/BMR/steps→m ported+tested; MET-class ordering + calorie/step regression best-effort |
-| Cycle prediction / tracking | `cycle_prediction_calculate @ 0x1e2864`, `cycle_tracking_calculate @ 0x1e4244` | - | ◐ day-type thresholds + 0.18–0.30 sine band recovered; fit_sin/sine_from_range unresolved - deferred |
-| **Sleep hypnogram (staging)** | SleepNet PyTorch model - not in ecore | `tools/run_sleep_model.py`, `tools/run_models.py bdi` | ✅ **decrypted + running**: we produce a DEEP/LIGHT/REM/WAKE hypnogram offline with the decrypted `sleepnet_moonstone_1_2_0` (and `sleepnet_bdi_0_4_0` for apnea). The model key was extracted, so decryption is no longer blocked. `sleepstaging_2_6_0` itself won't load (needs a custom op `oura_ops::oura_create_windows` our torch runtime lacks) — moonstone covers staging. See [model-runners.md](../model-runners.md) |
+| Readiness score + contributors | - | `oura-analysis::readiness`, `readiness_inputs`, `daily` | ✅ implemented: classic eight-contributor score with baselines, temperature and rest-mode caps, the grouped second readiness, and daily input assembly. See [metrics.md](metrics.md#readiness) |
+| Rest/recovery mode | - | `oura-analysis::rest_recovery` | ✅ implemented: period to state, recovery days, ring-event state machine, 30-period history. See [metrics.md](metrics.md#rest-mode) |
+| Activity score + contributors | - | `oura-analysis::activity_score` | ✅ implemented: seven contributors, weighted combiner. See [metrics.md](metrics.md#activity-score-and-day-statistics) |
+| Activity targets / cals / MET | - | `oura-analysis::actinfo`, `activity_day`, `metabolic` | ✅ implemented: minute classes, class minutes, MET-minutes, distance, calories, steps, daily target, day record. See [metrics.md](metrics.md#activity-score-and-day-statistics) |
+| Daily baseline update | - | `oura-analysis::daily` | ✅ implemented: `baseline_calculate` applied once per day |
+| Night lowest heart rate and its time | - | `oura-analysis::lowest_hr` | ✅ implemented |
+| IBI correction | - | `oura-analysis::ibi_correction` | ✅ implemented: beat tests, interpolation of rejected runs, validity indicator. See [metrics.md](metrics.md#ibi-correction) |
+| Bedtime detection (sleep window) | - | `oura-analysis::bedtime`, `bedtime_inputs` | ✅ implemented: minute classes, counters over 240 minutes, resting-HR nap candidates. See [metrics.md](metrics.md#bedtime-detection) |
+| Sleep regularity | - | `oura-analysis::sri` | ✅ implemented: 15 day rows of 144 ten-minute slots, weighted index. See [metrics.md](metrics.md#sleep-regularity) |
+| Steps from gait records | - | `oura-analysis::steps_motion_decoder`, `step_counter`, `real_steps` | ✅ implemented: gait feature decoding (no file), then merge with motion rows, stride rules, multiplier and resampling around an eligibility network that reads a weights file you supply ([models-you-supply.md](../models-you-supply.md)) |
+| **Sleep hypnogram (staging)** | on-device model, not in the metric functions | `oura-analysis::sleepstaging`, `tools/run_sleep_model.py`, `tools/run_models.py bdi` | ✅ implemented: the staging pipeline runs in Rust with a bundled classifier or one supplied by the caller ([staging-classifier.md](staging-classifier.md)); the Python runners need model files you supply ([model-runners.md](../model-runners.md)) |
 
 ## Device vs cloud (corrected)
 
@@ -49,7 +56,7 @@ host-supplied via `set_*` setters.
 
 **Reproducible offline by porting ecore:** sleep/readiness/activity scores, sleep
 debt, durations/efficiency, nightly temperature + baseline, HRV/RMSSD, resting-HR
-percentiles, breathing rate, simple SpO2, activity targets/calories/MET, cycle.
+percentiles, breathing rate, simple SpO2, activity targets/calories/MET.
 
 **Not from ecore alone:** the **hypnogram** (needs the SleepNet model or the ring's
 staging), **SpO2 OVI** (NaN stub) and **BDI/apnea** scoring (delegated), and the
@@ -60,7 +67,7 @@ bit-for-bit.
 
 ecore is stateless-per-call; the host re-injects state each night via typed
 objects: recovery state (+prev), temperature baseline, previous sleep periods,
-cycle-tracking state, and the SpO2 main storage (the only native binary serializer,
+and the SpO2 main storage (the only native binary serializer,
 versioned TLV). Mirror these in `oura-store` so baselines accumulate.
 
 ## Score combiners: structure recovered, exact tables blocked → use calibration

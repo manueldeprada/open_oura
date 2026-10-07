@@ -61,7 +61,7 @@ rows, so downstream storage and body decoding are shared.
 
 | Tag | Name | Carries |
 | --- | --- | --- |
-| `0x49`/`0x4c`/`0x4f`/`0x58` | sleep_summary_1..4 | bedtime, stage durations, lowest HR, contributors |
+| `0x49`/`0x4c`/`0x4f`/`0x58` | sleep_summary_1..4 | `0x49`: minute offsets from the event time back to the bedtime window start and end. `0x4c`, `0x4f`: fields unresolved. `0x58`: seven bytes in 1 to 100, possibly sleep-score contributors (not confirmed) |
 | `0x4b`/`0x4e`/`0x5a` | sleep_phase_* | hypnogram: enum {DEEP,LIGHT,REM,AWAKE} |
 | `0x50`/`0x51`/`0x52` | activity_information/summary | 13 MET-level bins + step counts |
 | `0x45`/`0x53` | state_change / wear | finger/wear state machine |

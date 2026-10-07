@@ -26,7 +26,7 @@ APP_LEVEL_AUTHENTICATING -> FOREGROUND_SYNC | BACKGROUND_SYNC):
 2. AUTHENTICATE (nonce -> AES -> `Authenticate`)
 3. GET_CAPABILITIES (records whether the ring supports extended event sync)
 4. APP_LEVEL_AUTHENTICATE
-5. STREAM_REGISTER (`16 01 02`) and per-category event subscriptions (`0x18`)
+5. STREAM_REGISTER (`16 01 02`, BLE mode 2) and six product-info reads (`0x18`)
 6. PARAM_SWEEP (`2f 02 20 ...` reads plus app setup writes)
 7. SYNC_TIMESTAMPS (`SyncTime`, write phone UTC)
 8. ENABLE_NOTIFICATION / state poll (`SetNotification` / `1c 01 bf`, depending
@@ -45,15 +45,21 @@ registration and sweep; `oura sync` now performs them before draining history.
 These are safe registration/read shapes, not destructive device-management
 commands:
 
-- `16 01 02` - enable/register the event stream.
-- Event-category subscriptions:
-  `18 03 14 00 10`, `18 03 18 00 10`, `18 03 28 00 09`,
-  `18 03 34 00 04`, `18 03 04 00 10`, `18 03 08 00 10`.
+- `16 01 02` - set BLE mode 2 (named "stream registration" in `oura-link`); what mode 2
+  does on the ring is not established beyond the connection-interval effect described
+  below.
+- Product-info reads (`18 03 <offset u16> <length u8>`, reply tag `0x19` with a status
+  byte): `18 03 14 00 10`, `18 03 18 00 10`, `18 03 28 00 09`,
+  `18 03 34 00 04`, `18 03 04 00 10`, `18 03 08 00 10`. Offsets `18` (hardware id), `28`
+  (product code) and `08` (serial) carry data; `14` and `04` return the same
+  strings shifted by four bytes. `req_event_subscribe(category, flags)` builds these same
+  bytes; the `(category, flags)` pairs are offsets and lengths.
 - Parameter sweep:
   `2f022002`, `2f022004`, `2f020301`, `2f02200b`, `2f02200d`,
   `2f022003`, `2f02200b`, `2f022010`.
-- App-style time sync:
-  `12 09 <token> <unix/256:u24 LE> 00 00 00 00 f6`.
+- Time sync: `12 09 <u64 LE unix s> <tz half hours>` (tz is a signed count of half hours east of UTC). The reply
+  `13 05 <clock u32> <flag>` carries the ring clock; a client may compare it with its
+  saved cursor (more than 600 ds behind means the ring clock was reset).
 
 ## Event-drain loop
 
@@ -171,11 +177,11 @@ Validation on 2026-07-01:
 
 1. Connect + bond; subscribe to the notify characteristic.
 2. Authenticate with the stored 16-byte key.
-3. Register the app-style stream (`16 01 02`), event categories (`0x18`), and
-   parameter sweep.
+3. Send `16 01 02`, the six product-info reads (`0x18`), and the parameter sweep. Sending
+   it to every ring, Ring 3 included, lets a 255-event batch finish faster.
 4. GetCapabilities -> choose extended vs legacy event path.
-5. SyncTime using the app-style counter packet (`12 09 ... f6`), falling back to the
-   legacy `12` form. `oura sync` does this by default (`--no-sync-time` to skip): the
+5. SyncTime with exact unix seconds and the host UTC offset (`12 09 <u64> <tz>`).
+   `oura sync` does this by default (`--no-sync-time` to skip): the
    `time_sync` event it writes is what dates the ring's history.
 6. (optional) firmware / product / battery for metadata.
 7. Trigger the ring's sleep postprocessing (`check_sleep_analysis(false)`), so a
@@ -186,3 +192,48 @@ Validation on 2026-07-01:
    Do not send the `GetEvent(max_events=0)` ack-fetch (see above).
 
 Do not issue any RData (0x03) for a normal pull.
+
+**Plausibility check on history timestamps.** `validate_batch` rejects an event more than 180 days
+after an anchor. With a nonzero cursor the anchor starts at the cursor. At cursor 0 it starts at the
+oldest timestamp in the batch, because a ring whose counter is past 180 days has every event beyond
+`0 + 180 days`. The anchor then follows the newest accepted event. A corrupt high timestamp, including
+the first event of the batch, is rejected and does not reach the cursor. A corrupt low timestamp at
+cursor 0 becomes the anchor and rejects the valid events; the batch is empty, the cursor stays at 0,
+and `drain_events` stops with an error that reports the rejected count. Choosing the anchor by majority
+would remove this case and is not implemented.
+
+## Stream registration and DataFlush
+
+- **Stream registration on every ring.** On a Ring 3 the ring answers `16 01 02`
+  by asking for a 15 ms connection interval instead of ~30 ms, so a 255-event legacy batch
+  (one 20-byte notification per event) finishes faster. The mode
+  lasts one BLE connection. BLE mode `1` (fast HR) changes nothing.
+- **DataFlush once, then at the tail.** One flush before the first read covers the ring's
+  buffered events; mid-backlog batches skip it (~45 ms each) and it is repeated once
+  `bytes_left` reaches 0.
+
+## Phone anchors
+
+A client may pair the newest drained ring timestamp with its own clock at the end of a sync
+(`Store::insert_phone_anchor`). The pair goes to the `phone_anchors` table, not to `events`: the ring
+never sent it, so it is not replayed or exported as a ring event. `Store::decoded_events` returns the
+anchors merged into the stream as `time_sync` rows with `"source":"phone"` (view
+`events_with_anchors`), after the batch they close. A phone anchor limits the bracket of ring-written
+`time_sync` events that dates a batch; it is never used as the ring's own clock.
+
+`Store::migrate_phone_anchors` moves the synthetic rows (tag `0x42`, body `<u32 LE unix>phone`) that
+earlier builds wrote into `events`. It runs in one transaction, copies before it deletes, and is
+idempotent.
+
+## Time sync
+
+The ring stores the low four bytes of the `12 09` timestamp as the `unix_time` of a
+`time_sync` (`0x42`) event, which dates the whole boot epoch. An earlier `sync_time_app` sent
+`12 09 <token> <unix/256:u24 LE> 00 00 00 00 f6`, which the ring reads as the u64
+`(unix & !0xff) | token` with `token = (unix as u8) * 37 + 0xa5`. The set clock was
+therefore early or late by up to 255 s, and the timezone byte was always `f6` (UTC-5).
+Clients should send the exact `12 09 <u64 unix s> <tz>` form.
+
+The send time of an affected packet is recoverable: `unix & 0xff = x * 37 + 0xa5 (mod 256)` gives
+`x = (token - 0xa5) * 37^-1 mod 256`, and the send time is `(unix & !0xff) | x`. Rows already
+stored from an affected client keep the wrong value unless repaired.

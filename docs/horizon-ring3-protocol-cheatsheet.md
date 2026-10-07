@@ -75,7 +75,7 @@ All rows below were tested on the Horizon unless noted otherwise.
 | Serial | `1803080010` | `19110058585858585858585858585858580000` | Serial `XXXXXXXXXXXXXX`. |
 | Get events unauthenticated | `10090000000008ffffffff` | `2f022f01` | Protocol auth required. |
 | Get events after auth | same | event packets then `110808009e0e00000300` | Returned 8 packets, summary says 8 events and 3742 bytes left. |
-| Sync time | `1209 <u64 timestamp> 00` | `13053d36000000` | Success-shaped response; payload not fully decoded. |
+| Sync time | `1209 <u64 unix s LE> <tz>` | `13053d36000000` | Reply is `13 05 <ring clock u32 LE, deciseconds> <flag>`; flag `01` means internal factory reset. See "Request details" below. |
 | Set notifications none | `1c0100` | `1d0100` | ACK success. |
 | Set notifications all | `1c013f` | `1d0100`, then `1f0420080000` | ACK then notification-state/event packet; restored after testing `0x00`. |
 | Set BLE mode normal | `160100` | `170100` | ACK success. |
@@ -190,7 +190,37 @@ On-finger realtime/listener follow-up:
 - Realtime tag `0x06` appears to be an enable/disable control, not a complete
   public stream selector. Payload `01000000` ACKs success but did not emit
   movement, HR, or other sensor samples during a 60s listener run. Other simple
-  mode guesses returned status `2`.
+  mode guesses returned status `2`. The 4-byte payloads above were not valid stream
+  requests; the request is 7 payload bytes (see "Request details").
+
+## Request details
+
+Layouts for the requests above:
+
+- **Product-info reads.** `18 03 14 00 10` and its five siblings (offsets `14`, `18`,
+  `28`, `34`, `04`, `08`) are reads: offset `u16`, length `u8`, reply tag `0x19` with a
+  status byte. They are not event subscriptions.
+- **`16 01 02`** sets BLE mode 2 and is sent at every connect. Modes 0 and 1 are in
+  the table above; what mode 2 does on a ring is not established.
+- **Real-time stream request.** `06 07 <mask u32 LE> <minutes u16 LE> <delay u8>`
+  (9 bytes). Mask bits: `0x20` ACM (reply frames tag `0x33`), `0x200` on demand (reply
+  tag `0x05`), `0x400` 2 Hz flag. The stop request is `06 04 00 00 00 00`. The reply is
+  `07 01 <status>` with status `0` on success. A request of the form
+  `06 04 <b0> 00 00 00` is the stop form with a nonzero first byte. Streaming is
+  confirmed only on a Ring 5.
+- **Feature-status last byte.** Byte 7 of `2f 06 21 ...` is a result code (0 success,
+  1 not supported, 2 not available, 3 not on finger, ...). The Horizon values (`1` on
+  encrypted API, `2` on background DFU, research data, bundling, app auth, BLE mode)
+  fit that reading for the first and are unexplained for the others.
+- **Sync time.** Request `12 09 <unix u64 LE> <tz i8>`, reply `13 05 <clock u32 LE>
+  <flag>`. A client may compare the clock with its saved cursor; a clock more than 600
+  ds behind the cursor means the ring clock was reset. See "Time sync" in
+  `sync-orchestration.md`.
+- **Event tags.** `0x85` is decoded as a one-second clock anchor (`rtc_beacon`). `0x59`
+  is named `eda_event` and decoded as 16-bit ambient samples. `0x80`
+  (`green_ibi_quality_event`) is labeled a Ring 5 tag in `events.rs`; a Ring 3
+  Horizon also writes it.
+- **Battery reply length.** A reply carries six payload bytes.
 
 ## Ring 5 Comparison
 
@@ -218,7 +248,7 @@ Authenticated event fetch returned event tags `0x41` and `0x43` before the
 | Packet family | Horizon status |
 | --- | --- |
 | `0x01`, `0x02` unknown | Tested after auth; no response. |
-| `0x03` RData | State, page 0, start-none-zero, and stop tested after auth. Clear shape is in the runner but was not run. **Start is blocked:** Ring 5 returns status `3` (idle) to every `configure` variant tried — with/without `sync_time`, start=now/0, ACM 2g/8g, ±Metadata channel — and never records (see `docs/rdata-capacity-probe.md`). Needs a precondition we haven't replicated. |
+| `0x03` RData | State, page 0, start-none-zero, and stop tested after auth. Clear shape is in the runner but was not run. **Start is blocked:** Ring 5 returns status `3` (refused, not idle) to every `configure` variant tried — with/without `sync_time`, start=now/0, ACM 2g/8g, ±Metadata channel — and never records (see `docs/rdata-capacity-probe.md`). Needs a precondition we haven't replicated. |
 | `0x06` realtime measurements | Off and six enable/guess payloads tested. `01000000` ACKed success but did not stream samples; other guesses returned status `2`. |
 | `0x08` firmware | Tested, success. |
 | `0x0a` self test | Written after auth; no notification observed in 1.5s. |

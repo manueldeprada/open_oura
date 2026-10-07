@@ -59,7 +59,7 @@ with `stop` + `clear`, even on error, and re-read state afterward):
 - `oura rdata probe` — sync time → arm ACM @ 50 Hz → record N s → read battery
   delta → drain pages (before stop, counting bytes/page size) → stop → clear.
 - `oura rdata sweep` — try several `configure` argument variants, checking after
-  each whether the ring left the idle state; tears down between attempts.
+  each whether the ring left the refusing state (status 3); tears down between attempts.
 
 Starting RData remains intentionally absent from normal operation; these are
 spike tools only. Wire helpers: `OuraClient::rdata_configure` / `rdata_get_page`
@@ -69,12 +69,12 @@ spike tools only. Wire helpers: `OuraClient::rdata_configure` / `rdata_get_page`
 
 | Attempt | configure request (hex) | response | ring state after | result |
 | --- | --- | --- | --- | --- |
-| ACM 2g 50Hz, start=current=now, **no time sync** | `030a02<now><now>04` | `0203` | status 3 | idle, 0 pages, battery Δ0 over 10 min |
-| ACM 2g 50Hz, start=current=now, **after `sync_time`** | `030a026bf63b6a6bf63b6a04` | `0203` | status 3 | idle, 0 pages, battery Δ0 over 30 s; page0 = `NO_DATA` (`00…`) |
-| ACM 2g 50Hz, start=0, current=now | `030a0200000000<now>04` | `0203` | status 3 | still idle |
-| Metadata + ACM, start=now | `030b02<now><now>0804` | `0203` | status 3 | still idle |
-| Metadata + ACM, start=0 | `030b0200000000<now>0804` | `0203` | status 3 | still idle |
-| ACM 8g 50Hz, start=now | `030a02<now><now>03` | `0203` | status 3 | still idle |
+| ACM 2g 50Hz, start=current=now, **no time sync** | `030a02<now><now>04` | `0203` | status 3 | refused, 0 pages, battery Δ0 over 10 min |
+| ACM 2g 50Hz, start=current=now, **after `sync_time`** | `030a02<now><now>04` | `0203` | status 3 | refused, 0 pages, battery Δ0 over 30 s; page0 = `NO_DATA` (`00…`) |
+| ACM 2g 50Hz, start=0, current=now | `030a0200000000<now>04` | `0203` | status 3 | refused again |
+| Metadata + ACM, start=now | `030b02<now><now>0804` | `0203` | status 3 | refused again |
+| Metadata + ACM, start=0 | `030b0200000000<now>0804` | `0203` | status 3 | refused again |
+| ACM 8g 50Hz, start=now | `030a02<now><now>03` | `0203` | status 3 | refused again |
 
 `<now>` = host UTC unix seconds, u32 LE. Request layout matches the documented
 app `RDataStart` (`03 <len> 02 <start u32> <current u32> <type bytes…>`,

@@ -26,11 +26,12 @@ The `.so`, the Ghidra project, and the decompiled C are RE work products kept lo
   `12.8 + (b-128)×0.2`.
 - **Batched events** carry N samples sharing one event time; the first sample is
   `utc_time_ms − (n-1)×interval`, stepping by `interval` (HRV/ambient = 5 min,
-  sleep-temp = 30 s, meas-quality = 3 min, SpO2 = 1 s, AOHR = 1920 ms).
+  sleep-temp = 30 s, meas-quality = 3 min, SpO2 = 1 s, AOHR = 1920 ms). A Ring 3
+  writes `meas_quality_event` rows at much shorter intervals than the 3-minute figure for `0x6d`.
 - **The tag→parser map is built at runtime** (a registered table indexed by tag),
   not a static switch - so unknown tags are matched by structure and confirmed
   against real bytes.
-- **Tag `0x80` = `green_ibi_quality_event`** (Ring 5): green-LED inter-beat
+- **Tag `0x80` = `green_ibi_quality_event`** (named a Ring 5 tag; a Ring 3 Horizon also writes it): green-LED inter-beat
   intervals, `ibi_ms = (b1 & 7) | (b0 << 3)`, `quality = (b1>>3)&3`. Confirmed by
   decoding real captures to coherent resting heart rate (~52 bpm). This means heart
   rate is recoverable even when the daytime-HR feature is off.

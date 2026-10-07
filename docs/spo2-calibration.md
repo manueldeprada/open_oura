@@ -11,7 +11,9 @@ paths convert it:
 
 1. **Production nightly feature** — uses `API_SPO2_EVENT` (0x6f) /
    `API_SPO2_SMOOTHED_EVENT` (0x70), which are **percentages already computed in
-   the ring firmware**. We don't capture those, and that R→% math lives in firmware.
+   the ring firmware**; that R→% math lives in firmware. `0x6f` is decoded
+   (`decode_spo2`). A Ring 3 Horizon writes it (one sample per second; values above 100
+   occur, so clamp at 100) and does not write `0x8b`.
 2. **"SpO2 Simple" path** — converts the `r` of `spo2_r_pi_event` in-app with a
    per-hardware quadratic. **This is the one we can reproduce** from our data.
 
@@ -29,6 +31,11 @@ selected by ring hardware type:
 | --- | --- | --- | --- |
 | gen4 / oreo | −13.4 | −5.1 | 105.2 |
 | cooper | −12.1 | −6.9 | 106.3 |
+
+The Rust `oura_analysis::ported::spo2::spo2_simple(r, a, b, c)` evaluates `a + b·r + c·r²`
+(constant term first) and clamps to 0..120, so it needs the table reversed: gen4 / oreo is
+`spo2_simple(r, 105.2, -5.1, -13.4)`, and the caller has to clamp to 85..100. The Rust crate
+holds no constants.
 
 `pi` (perfusion index) is passed to the native algo as a quality input; there is no
 in-app PI threshold. The daily value is clamped to integer **85–100**.
