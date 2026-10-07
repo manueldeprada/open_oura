@@ -4,9 +4,11 @@
 //! see `sleepnet`); ecore decodes it in `calculate_sleep_score_numerical @
 //! 0x1f4444` as packed nibbles (two epochs per byte, `stage = nibble & 0xF`
 //! clamped `< 5`). The stage enum follows `SleepPhase_OSSAv1` (0=deep, 1=light,
-//! 2=rem, 3=awake, 4=other/non-wear). The exact per-stage aggregation helper isn't
-//! in the decompile, so the summary below counts epochs per stage (the standard
-//! reconstruction). See `docs/algorithms/sleep-summary.md`.
+//! 2=rem, 3=awake, 4=other/non-wear). [`summarize`] counts epochs per stage; it is a
+//! plain count and is deprecated in favor of
+//! [`super::sleep_inputs::scan`] and [`super::sleep_inputs::period_from_scan`], which
+//! apply the scoring scan. Their codes are 1 deep, 2 light, 3 REM, 4 awake, so pass `code + 1`
+//! from this module's codes.
 
 pub const EPOCH_SECONDS: u32 = 30;
 
@@ -65,6 +67,7 @@ pub struct SleepSummary {
 
 /// Summarize an epoch stage-code series (+ optional time-in-bed seconds) into
 /// stage durations, sleep-onset latency, wake count and efficiency.
+#[deprecated(note = "plain count; use sleep_inputs::scan and period_from_scan")]
 pub fn summarize(stage_codes: &[u8], time_in_bed_s: Option<u32>) -> SleepSummary {
     let mut s = SleepSummary::default();
     let mut first_sleep: Option<usize> = None;
@@ -99,6 +102,7 @@ pub fn summarize(stage_codes: &[u8], time_in_bed_s: Option<u32>) -> SleepSummary
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
 

@@ -2,7 +2,8 @@
 //! inter-beat-interval series — the textbook `sqrt(mean(diff(ibi)^2))`. The ring
 //! also reports a 5-min average RMSSD directly in `hrv_event`; this lets us
 //! compute RMSSD over any IBI window we decode.
-//! See docs/algorithms/hrv.md.
+//! See the HRV row in `docs/algorithms/README.md`. The night average is
+//! `sleep_summary::calculate_average_rmssd`.
 
 /// RMSSD (ms) over a sequence of inter-beat intervals (ms). Needs >= 2 intervals.
 pub fn rmssd(ibi_ms: &[u16]) -> Option<f64> {

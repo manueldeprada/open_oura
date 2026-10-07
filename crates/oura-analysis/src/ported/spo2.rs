@@ -2,7 +2,7 @@
 //! a quadratic calibration of the red/IR ratio `R` → SpO2 %, clamped to [0, 120].
 //! The ring streams raw `R` (and perfusion index) in `spo2_r_pi_event` (tag 0x8b);
 //! the per-device calibration coefficients {a, b, c} come from the ring.
-//! See docs/algorithms/spo2.md.
+//! See the SpO2 row in `docs/algorithms/README.md` and `docs/spo2-calibration.md`.
 
 /// SpO2 (%) from the ratio `r` and quadratic calibration `a + b*r + c*r^2`.
 pub fn spo2_simple(r: f64, a: f64, b: f64, c: f64) -> f64 {
