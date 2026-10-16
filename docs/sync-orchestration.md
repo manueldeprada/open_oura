@@ -119,6 +119,15 @@ behavior:
   (negligible), and every batch yields a cursor checkpoint + a `bytes_left`
   progress report.
 
+- **Stream registration on every ring.** `16 01 02` is the app's first command after
+  auth. On Horizon (fw 3.4.3) the ring answers it by asking for a 15 ms connection
+  interval instead of ~30 ms, so a 255-event legacy batch (one 20-byte notification per
+  event) arrives in ~420 ms instead of ~850 ms. The mode lasts one BLE connection. BLE
+  mode `1` (fast HR) changes nothing.
+- **DataFlush once, then at the tail.** One flush before the first read covers the ring's
+  buffered events; mid-backlog batches skip it (~45 ms each) and it is repeated once
+  `bytes_left` reaches 0.
+
 ### Extended event sync status
 
 Ring 5 responds to Android's newer `ExtGetEvent` request:

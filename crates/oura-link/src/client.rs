@@ -363,7 +363,7 @@ impl<T: Transport> OuraClient<T> {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        self.request(&protocol::req_sync_time(now, 0)).await?;
+        self.request_tag(&protocol::req_sync_time(now, 0), 0x13).await?;
         Ok(())
     }
 
@@ -376,7 +376,9 @@ impl<T: Transport> OuraClient<T> {
             .map(|d| d.as_secs())
             .unwrap_or(0);
         let token = (now as u8).wrapping_mul(37).wrapping_add(0xa5);
-        self.request(&protocol::req_sync_time_counter(now, token))
+        // The reply is tag 0x13 (request + 1); ending on it saves the 1.5 s quiet window.
+        // An unexpected reply still falls back to that window.
+        self.request_tag(&protocol::req_sync_time_counter(now, token), 0x13)
             .await?;
         Ok(())
     }
@@ -394,7 +396,15 @@ impl<T: Transport> OuraClient<T> {
         let hw = self.hardware_id().await.unwrap_or_default();
         let is_ring5 = hw.rsplit('_').next() == Some("05");
         if !is_ring5 {
-            tracing::debug!("skipping Ring 5 app-stream setup for hardware_id={hw:?}");
+            // Only the stream registration (`16 01 02`), which every ring accepts. It
+            // is the official app's first command after auth and makes the ring ask for
+            // a 15 ms connection interval instead of ~30 ms: on a Horizon (fw 3.4.3)
+            // the same 255-event batch arrives in ~420 ms instead of ~850 ms. The mode
+            // lasts only for the BLE connection. Best effort: a refusal costs speed only.
+            let _ = self
+                .request_tag(&protocol::req_stream_subscribe(0x02), 0x17)
+                .await;
+            tracing::debug!("registered stream only for hardware_id={hw:?}");
             return Ok(());
         }
         self.request_tag(&protocol::req_stream_subscribe(0x02), 0x17)
@@ -467,9 +477,18 @@ impl<T: Transport> OuraClient<T> {
         let batch_terminal = |p: &Packet| {
             p.tag == 0x11 || (p.tag == 0x2f && matches!(p.payload.first(), Some(0x42) | Some(0x00)))
         };
+        // DataFlush moves the ring's RAM-buffered (newest) events into the readable
+        // history. One flush before the first read covers everything buffered so far, and
+        // reads of older history need none, so mid-backlog batches skip it (~45 ms each).
+        // It is repeated once the ring reports nothing left, where the newest events live.
+        let mut flush_next = true;
         // Safety bound against a misbehaving ring that never reports drained.
         for _ in 0..100_000 {
-            let mut packets = self.request_tag(&protocol::req_data_flush(), 0x29).await?;
+            let mut packets = if flush_next {
+                self.request_tag(&protocol::req_data_flush(), 0x29).await?
+            } else {
+                Vec::new()
+            };
             if use_extended {
                 let ext = self
                     .request_batch(
@@ -529,6 +548,7 @@ impl<T: Transport> OuraClient<T> {
                 );
             }
             let bytes_left = batch.bytes_left;
+            flush_next = bytes_left == 0;
             let progressed = batch.progressed(start);
             let tail = progressed && bytes_left == 0 && batch.events.len() < TAIL_BATCH_EVENTS;
             if tail {
@@ -654,7 +674,7 @@ impl<T: Transport> OuraClient<T> {
     /// Trigger the ring's sleep analysis. Returns the `0x29` status byte.
     pub async fn check_sleep_analysis(&self, force: bool) -> Result<u8> {
         let packets = self
-            .request(&protocol::req_check_sleep_analysis(force))
+            .request_tag(&protocol::req_check_sleep_analysis(force), 0x29)
             .await?;
         Self::find(&packets, 0x29)
             .and_then(|p| p.payload.first().copied())
