@@ -22,6 +22,7 @@ pub mod ops;
 pub mod pipeline;
 pub mod postprocess;
 pub mod rolling;
+pub mod vendor_forest;
 pub mod numeric_ops;
 
 
