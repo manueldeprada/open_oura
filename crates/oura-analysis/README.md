@@ -54,11 +54,10 @@ the blob classifier.
 ### Bundled classifier
 
 The crate contains a classifier, `sleepstaging::bundled::bundled_classifier()`, which `stage_night_default` uses.
-It is a gradient-boosted tree ensemble (4 classes, 300 rounds of depth-3 trees, 8,399 nodes, 174,052 bytes) in
-`data/sleep_stage_gbt.bin`, trained by the maintainer. In leave-one-night-out evaluation on nine nights from one
-user, it agrees with the official app's per-30-second stages on 91.4% of epochs (mean over nights), against 87.6% for the
-earlier stage model on the same nights. These figures measure agreement with the official app's stages for one user; they are
-not accuracy against polysomnography and do not cover other users.
+It is a gradient-boosted tree ensemble (4 classes, 800 rounds of trees with up to 32 leaves, 99,200 nodes, 1,846,470
+bytes) in `data/sleep_stage_gbt.bin`, trained by the maintainer on simulated nights only. On 14 nights from one user,
+it agrees with the official app's per-30-second stages on 92.6% of epochs (pooled; Cohen's kappa 0.89). These figures measure
+agreement with the official app's stages for one user; they are not accuracy against polysomnography and do not cover other users.
 
 ### Supplying another classifier
 
