@@ -1,7 +1,7 @@
 //! **Sleep-stage classifier**: a gradient-boosted tree ensemble for the 30 s stager
 //! (182 features, 4 classes: deep, light, REM, wake).
 //!
-//! The bundled model is in `data/sleep_stage_gbt.bin` (300 rounds per class); another can be
+//! The bundled model is in `data/sleep_stage_gbt.bin` (800 rounds per class); another can be
 //! loaded with `load_classifier`. A model is a flat blob read by [`SleepClassifier::from_bytes`].
 //! The blob layout is documented in `docs/algorithms/staging-classifier.md`.
 //!

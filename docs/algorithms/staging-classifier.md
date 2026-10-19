@@ -11,13 +11,18 @@ file (next section).
 `stage_night_default(&Inputs, rerun, nap)` stages a night with the classifier in
 `ported::sleepstaging::bundled`. `bundled_classifier()` returns it as a `&'static SleepClassifier`,
 parsed once on first use from `crates/oura-analysis/data/sleep_stage_gbt.bin`, which is compiled into
-the crate with `include_bytes!`. The blob is a gradient-boosted tree ensemble (4 classes, 300 rounds, 1,200 trees, 8,399 nodes, 9,599
-leaves, 174,052 bytes) trained by the maintainer.
+the crate with `include_bytes!`. The blob is a gradient-boosted tree ensemble (4 classes, 800 rounds,
+3,200 trees with up to 32 leaves, 99,200 nodes, 102,400 leaves, 1,846,470 bytes) trained by the
+maintainer on simulated nights only, so no recorded night is in its training data.
 
-Evaluation: in leave-one-night-out evaluation on nine nights from one user, it agrees with the official app's
-per-30-second stages on 91.4% of epochs (mean over nights), against 87.6% for the earlier stage model on
-the same nights. These figures measure agreement with the official app's stages for one user. They are not accuracy
-against polysomnography, and users other than that one are not covered.
+Evaluation: on 14 nights from one user, it agrees with the official app's per-30-second stages on 92.6% of epochs
+(pooled; 95% bootstrap interval over nights 91.6% to 93.6%; Cohen's kappa 0.89; lowest night 89.1%). The
+previous bundled model (174,052 bytes), trained on 8 of those nights, agrees on 92.4% of the 14 and 90.5% of
+the 6 it was not trained on. These figures measure agreement with the official app's stages for one user. They are
+not accuracy against polysomnography, and users other than that one are not covered.
+
+Classifier time grows with the number of trees. On one Apple M3 core the bundled blob takes about 0.18 s
+per night for one classifier pass, and the full stager about 1 s per night.
 
 To use another model, implement `StageClassifier` or load a blob with `classifier::load_classifier`
 (format below) and call `stage_night_with`. The other entry points keep their signatures.

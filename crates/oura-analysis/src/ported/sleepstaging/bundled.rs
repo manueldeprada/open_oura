@@ -1,12 +1,14 @@
 //! The classifier that ships with the crate.
 //!
-//! The blob `data/sleep_stage_gbt.bin` is a gradient-boosted tree ensemble (4 classes, 300 rounds
-//! of depth-3 trees, 8,399 nodes, 174,052 bytes) in the format of
-//! `docs/algorithms/staging-classifier.md`. It was trained by the maintainer on nine nights from
-//! one user. In leave-one-night-out evaluation on those nights it agrees with the official app's per-30-second
-//! stages on 91.4% of epochs (mean over nights), against 87.6% for the earlier stage model on the
-//! same nights. The figures describe agreement with the official app's stages for one user, not accuracy
-//! against polysomnography, and other users are not covered by the evaluation.
+//! The blob `data/sleep_stage_gbt.bin` is a gradient-boosted tree ensemble (4 classes, 800 rounds
+//! of trees with up to 32 leaves, 99,200 nodes, 1,846,470 bytes) in the format of
+//! `docs/algorithms/staging-classifier.md`. It was trained by the maintainer on simulated nights
+//! only, so no recorded night is in its training data. On 14 nights from one user it agrees with
+//! the official app's per-30-second stages on 92.6% of epochs (pooled; 95% bootstrap interval over nights
+//! 91.6% to 93.6%; Cohen's kappa 0.89). The previous bundled model, trained on 8 of those nights,
+//! agrees on 92.4% of the 14 and 90.5% of the 6 it was not trained on. The figures describe
+//! agreement with the official app's stages for one user, not accuracy against polysomnography, and other
+//! users are not covered by the evaluation.
 //!
 //! Another model can replace it through `classifier::load_classifier` and
 //! `pipeline::stage_night_with`.
@@ -39,7 +41,7 @@ mod tests {
     use crate::ported::sleepstaging::classifier::{StageClassifier, STAGER_FEATURES};
 
     /// SHA-256 of `data/sleep_stage_gbt.bin`. Update it together with the blob.
-    const BLOB_SHA256: &str = "c4410e28b6aede26de2d75f2887bba8d3c15dfad9fce7638a9bc791a8733f3b6";
+    const BLOB_SHA256: &str = "8fca22f7e9c873d594f6eb4a9d5b21768f4dcf14be0082c8e26c295a8d923f19";
 
     fn sha256_hex(data: &[u8]) -> String {
         const K: [u32; 64] = [
@@ -96,16 +98,16 @@ mod tests {
 
     #[test]
     fn blob_is_unchanged() {
-        assert_eq!(bundled_classifier_bytes().len(), 174_052);
+        assert_eq!(bundled_classifier_bytes().len(), 1_846_470);
         assert_eq!(sha256_hex(bundled_classifier_bytes()), BLOB_SHA256);
     }
 
     #[test]
     fn blob_loads_and_has_the_documented_shape() {
         let h = inspect_blob(bundled_classifier_bytes()).unwrap();
-        assert_eq!((h.version, h.n_features, h.n_classes, h.n_rounds), (1, 182, 4, 300));
+        assert_eq!((h.version, h.n_features, h.n_classes, h.n_rounds), (1, 182, 4, 800));
         let clf = bundled_classifier();
-        assert_eq!((clf.n_rounds(), clf.n_nodes()), (300, 8_399));
+        assert_eq!((clf.n_rounds(), clf.n_nodes()), (800, 99_200));
         assert!(std::ptr::eq(clf, bundled_classifier()));
         let dynamic: &dyn StageClassifier = clf;
         assert_eq!((dynamic.n_features(), dynamic.n_classes()), (STAGER_FEATURES, 4));
@@ -126,10 +128,10 @@ mod tests {
     #[test]
     fn margins_of_fixed_rows_are_stable() {
         let expected: [[f64; 4]; 4] = [
-            [-0.20106790694444499, 2.7547628310130676, -3.336986283378792, -0.20007032924149826],
-            [-2.5183061446896318, 0.8777799581575891, -2.4657656147464877, 3.7164727715517074],
-            [-3.499140311338124, 1.4817925879033282, 1.1290308909774467, 1.5201792911757366],
-            [-2.2686192079345346, 3.2766984733525533, -4.272134565777378, 2.946109887170678],
+            [-1.5501620865035761, 1.4096348618392085, -4.934963018257122, -1.0969842428730772],
+            [-3.2329283619343983, -0.11144537625489193, -2.562564092184573, 2.7781006852933956],
+            [-4.851369719716786, -0.40904513644909457, -1.2741748006792477, 2.980949903289911],
+            [-3.5847939437667264, 0.3284785843785869, -4.121143422224577, 2.359841650598554],
         ];
         for (x, e) in rows().iter().zip(expected) {
             let m = bundled_classifier().margins(x);
